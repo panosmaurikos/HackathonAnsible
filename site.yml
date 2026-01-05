@@ -5,39 +5,30 @@
   gather_facts: true
 
   pre_tasks:
-    - name: Install whiptail for interactive menu
-      ansible.builtin.apt:
-        name: whiptail
-        state: present
-        update_cache: yes
-      delegate_to: localhost
-      run_once: true
+    - name: Display distribution menu
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════╗
+          ║   Kubernetes Distribution Selection                 ║
+          ╚══════════════════════════════════════════════════════╝
+
+          1) k3s      - Lightweight Kubernetes (Recommended)
+          2) microk8s - Canonical's Kubernetes
       when: k8s_distribution is not defined
-      become: true
+      run_once: true
 
     - name: Interactive distribution selection
-      ansible.builtin.shell: |
-        if command -v whiptail &> /dev/null; then
-          whiptail --title "Kubernetes Distribution" --menu "Choose distribution (use arrow keys):" 15 60 2 \
-            "k3s" "Lightweight Kubernetes (Recommended)" \
-            "microk8s" "Canonical's Kubernetes" 3>&1 1>&2 2>&3
-        elif command -v dialog &> /dev/null; then
-          dialog --title "Kubernetes Distribution" --menu "Choose distribution (use arrow keys):" 15 60 2 \
-            "k3s" "Lightweight Kubernetes (Recommended)" \
-            "microk8s" "Canonical's Kubernetes" 3>&1 1>&2 2>&3
-        else
-          echo "k3s"
-        fi
-      register: distribution_choice
-      delegate_to: localhost
-      run_once: true
-      become: false
-      when: k8s_distribution is not defined
-      changed_when: false
+      ansible.builtin.pause:
+        prompt: |
 
-    - name: Set k8s_distribution variable
+          Enter your choice (1 or 2) [1]
+      register: distribution_input
+      when: k8s_distribution is not defined
+      run_once: true
+
+    - name: Set k8s_distribution from user input
       ansible.builtin.set_fact:
-        k8s_distribution: "{{ distribution_choice.stdout | default('k3s') }}"
+        k8s_distribution: "{{ 'k3s' if (distribution_input.user_input | default('1') == '1' or distribution_input.user_input | default('1') == '') else 'microk8s' }}"
       when: k8s_distribution is not defined
       run_once: true
 
