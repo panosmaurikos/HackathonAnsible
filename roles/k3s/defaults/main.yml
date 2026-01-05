@@ -1,0 +1,9 @@
+---
+# K3s default variables
+k3s_version: ""
+k3s_channel: "stable"
+k3s_flannel_backend: "none"
+k3s_disable_components:
+  - traefik
+k3s_server_extra_args: "--write-kubeconfig-mode 644"
+k3s_agent_extra_args: ""

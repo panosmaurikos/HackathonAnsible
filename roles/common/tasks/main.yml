@@ -1,0 +1,79 @@
+---
+# Common prerequisites for both k3s and microk8s
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Disable swap
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+
+- name: Remove swap from fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^.*\sswap\s.*$'
+    state: absent
+  notify: Reload systemd
+
+- name: Load required kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ required_kernel_modules }}"
+
+- name: Persist kernel modules
+  ansible.builtin.lineinfile:
+    path: /etc/modules-load.d/kubernetes.conf
+    line: "{{ item }}"
+    create: true
+    mode: '0644'
+  loop: "{{ required_kernel_modules }}"
+
+- name: Set sysctl parameters
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    reload: true
+  loop: "{{ sysctl_settings | dict2items }}"
+
+- name: Check if UFW is active
+  ansible.builtin.command: ufw status
+  register: ufw_status
+  changed_when: false
+  failed_when: false
+
+- name: Open firewall ports for Kubernetes
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ k8s_firewall_ports }}"
+  when: "ufw_status.rc == 0 and 'Status: active' in ufw_status.stdout"
+
+- name: Create kubeconfig directory for user
+  ansible.builtin.file:
+    path: "{{ kubeconfig_dir }}"
+    state: directory
+    owner: "{{ kubeconfig_user }}"
+    group: "{{ kubeconfig_group }}"
+    mode: '0755'
+
+- name: Create kubeconfig directory for root
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: setup_root_kubeconfig

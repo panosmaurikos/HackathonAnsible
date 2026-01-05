@@ -1,0 +1,176 @@
+---
+# MicroK8s Installation Role
+
+- name: Check if snapd is installed
+  ansible.builtin.command: which snap
+  register: snap_check
+  changed_when: false
+  failed_when: false
+
+- name: Install snapd
+  ansible.builtin.apt:
+    name: snapd
+    state: present
+  when: snap_check.rc != 0
+
+- name: Check if microk8s is installed
+  ansible.builtin.command: snap list microk8s
+  register: microk8s_check
+  changed_when: false
+  failed_when: false
+
+- name: Install MicroK8s
+  ansible.builtin.command: snap install microk8s --classic
+  when: microk8s_check.rc != 0
+  register: microk8s_install
+
+- name: Wait for MicroK8s to be ready
+  ansible.builtin.command: microk8s status --wait-ready
+  register: microk8s_ready
+  retries: 30
+  delay: 10
+  until: microk8s_ready.rc == 0
+  changed_when: false
+
+- name: Add user to microk8s group
+  ansible.builtin.user:
+    name: "{{ kubeconfig_user }}"
+    groups: microk8s
+    append: true
+
+# ===========================================
+# Enable Required Addons
+# ===========================================
+- name: Enable MicroK8s addons
+  ansible.builtin.command: "microk8s enable {{ item }}"
+  loop: "{{ microk8s_addons }}"
+  register: addon_result
+  changed_when: "'is already enabled' not in addon_result.stdout"
+  failed_when: false
+
+- name: Enable Calico addon
+  ansible.builtin.command: microk8s enable calico
+  register: calico_enable
+  changed_when: "'is already enabled' not in calico_enable.stdout"
+  when: microk8s_use_calico | default(true)
+  failed_when: false
+
+- name: Wait for cluster to be ready after addons
+  ansible.builtin.command: microk8s status --wait-ready
+  changed_when: false
+  retries: 10
+  delay: 10
+
+# ===========================================
+# Setup kubectl without microk8s prefix
+# ===========================================
+- name: Create kubeconfig for user
+  ansible.builtin.shell: microk8s config > {{ kubeconfig_dir }}/config
+  args:
+    creates: "{{ kubeconfig_dir }}/config"
+
+- name: Set kubeconfig permissions
+  ansible.builtin.file:
+    path: "{{ kubeconfig_dir }}/config"
+    owner: "{{ kubeconfig_user }}"
+    group: "{{ kubeconfig_group }}"
+    mode: '0600'
+
+- name: Create kubeconfig for root
+  ansible.builtin.shell: microk8s config > /root/.kube/config
+  args:
+    creates: /root/.kube/config
+  when: setup_root_kubeconfig
+
+- name: Set root kubeconfig permissions
+  ansible.builtin.file:
+    path: /root/.kube/config
+    owner: root
+    group: root
+    mode: '0600'
+  when: setup_root_kubeconfig
+
+# ===========================================
+# Install standalone kubectl
+# ===========================================
+- name: Check if kubectl is installed
+  ansible.builtin.command: which kubectl
+  register: kubectl_check
+  changed_when: false
+  failed_when: false
+
+- name: Install kubectl via snap
+  ansible.builtin.command: snap install kubectl --classic
+  when: kubectl_check.rc != 0
+
+# ===========================================
+# Setup environment for all users
+# ===========================================
+- name: Set KUBECONFIG in bashrc for user
+  ansible.builtin.lineinfile:
+    path: "/home/{{ kubeconfig_user }}/.bashrc"
+    line: 'export KUBECONFIG={{ kubeconfig_dir }}/config'
+    state: present
+    create: true
+    mode: '0644'
+
+- name: Set KUBECONFIG in bashrc for root
+  ansible.builtin.lineinfile:
+    path: /root/.bashrc
+    line: 'export KUBECONFIG=/root/.kube/config'
+    state: present
+  when: setup_root_kubeconfig
+
+- name: Setup kubectl bash completion
+  ansible.builtin.shell: kubectl completion bash > /etc/bash_completion.d/kubectl
+  args:
+    creates: /etc/bash_completion.d/kubectl
+  failed_when: false
+
+# ===========================================
+# Create convenience aliases
+# ===========================================
+- name: Add kubectl aliases to user bashrc
+  ansible.builtin.blockinfile:
+    path: "/home/{{ kubeconfig_user }}/.bashrc"
+    block: |
+      # Kubernetes aliases
+      alias k='kubectl'
+      alias kgp='kubectl get pods'
+      alias kgpa='kubectl get pods -A'
+      alias kgn='kubectl get nodes'
+      alias kgs='kubectl get svc'
+      alias kga='kubectl get all'
+      alias kgaa='kubectl get all -A'
+    marker: "# {mark} ANSIBLE MANAGED - KUBECTL ALIASES"
+
+- name: Add kubectl aliases to root bashrc
+  ansible.builtin.blockinfile:
+    path: /root/.bashrc
+    block: |
+      # Kubernetes aliases
+      alias k='kubectl'
+      alias kgpa='kubectl get pods -A'
+      alias kgn='kubectl get nodes'
+    marker: "# {mark} ANSIBLE MANAGED - KUBECTL ALIASES"
+  when: setup_root_kubeconfig
+
+# ===========================================
+# Verify setup works
+# ===========================================
+- name: Verify kubectl works
+  ansible.builtin.command: kubectl get nodes
+  register: kubectl_verify
+  changed_when: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_dir }}/config"
+
+- name: Display verification result
+  ansible.builtin.debug:
+    msg: |
+      ✅ MicroK8s installed successfully!
+      ✅ kubectl works without 'microk8s' prefix!
+      
+      You can now use:
+        kubectl get pods -A
+        kubectl get nodes

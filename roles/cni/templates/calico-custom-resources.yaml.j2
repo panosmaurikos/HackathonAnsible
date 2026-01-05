@@ -1,0 +1,29 @@
+---
+# Calico Installation Custom Resources
+# This manifest creates the Installation and APIServer resources
+
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  # Configures Calico networking
+  calicoNetwork:
+    # Note: The ipPools section cannot be modified post-install
+    ipPools:
+      - blockSize: 26
+        cidr: {{ pod_cidr }}
+        encapsulation: VXLANCrossSubnet
+        natOutgoing: Enabled
+        nodeSelector: all()
+    nodeAddressAutodetectionV4:
+      firstFound: true
+
+---
+
+# This section configures the Calico API server
+apiVersion: operator.tigera.io/v1
+kind: APIServer
+metadata:
+  name: default
+spec: {}

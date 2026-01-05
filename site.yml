@@ -1,0 +1,83 @@
+---
+- name: Kubernetes Cluster Setup
+  hosts: k8s_nodes
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Interactive distribution selection
+      ansible.builtin.shell: |
+        if command -v whiptail &> /dev/null; then
+          whiptail --title "Kubernetes Distribution" --menu "Choose distribution (use arrow keys):" 15 60 2 \
+            "k3s" "Lightweight Kubernetes (Recommended)" \
+            "microk8s" "Canonical's Kubernetes" 3>&1 1>&2 2>&3
+        elif command -v dialog &> /dev/null; then
+          dialog --title "Kubernetes Distribution" --menu "Choose distribution (use arrow keys):" 15 60 2 \
+            "k3s" "Lightweight Kubernetes (Recommended)" \
+            "microk8s" "Canonical's Kubernetes" 3>&1 1>&2 2>&3
+        else
+          echo "k3s"
+        fi
+      register: distribution_choice
+      delegate_to: localhost
+      run_once: true
+      become: false
+      when: k8s_distribution is not defined
+      changed_when: false
+
+    - name: Set k8s_distribution variable
+      ansible.builtin.set_fact:
+        k8s_distribution: "{{ distribution_choice.stdout | default('k3s') }}"
+      when: k8s_distribution is not defined
+      run_once: true
+
+    - name: Validate distribution choice
+      ansible.builtin.assert:
+        that:
+          - k8s_distribution in ['k3s', 'microk8s']
+        fail_msg: "Invalid distribution. Choose 'k3s' or 'microk8s'"
+        success_msg: "Installing {{ k8s_distribution }}"
+
+    - name: Display installation plan
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Kubernetes Installation Plan
+          ============================================
+          Distribution: {{ k8s_distribution }}
+          CNI: {{ cni_plugin | default('calico') }}
+          ============================================
+
+  roles:
+    - role: common
+      tags: [common, always]
+
+    - role: k3s
+      when: k8s_distribution == 'k3s'
+      tags: [k3s, kubernetes]
+
+    - role: microk8s
+      when: k8s_distribution == 'microk8s'
+      tags: [microk8s, kubernetes]
+
+    - role: cni
+      when: k8s_distribution == 'k3s'
+      tags: [cni, networking]
+
+  post_tasks:
+    - name: Verify cluster is ready
+      ansible.builtin.command: kubectl get nodes
+      register: nodes_output
+      changed_when: false
+      retries: 10
+      delay: 10
+      until: nodes_output.rc == 0
+
+    - name: Display cluster status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Cluster Ready!
+          ============================================
+          {{ nodes_output.stdout }}
+          ============================================

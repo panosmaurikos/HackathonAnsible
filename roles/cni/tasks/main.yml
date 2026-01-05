@@ -1,0 +1,100 @@
+---
+# CNI Installation Role (for k3s)
+# MicroK8s handles CNI via addons, so this is k3s only
+
+- name: Install CNI Plugin
+  when: node_role | default('master') == 'master'
+  block:
+    # ===========================================
+    # Calico Installation
+    # ===========================================
+    - name: Install Calico CNI
+      when: cni_plugin == 'calico'
+      block:
+        - name: Install Tigera Operator
+          ansible.builtin.command: >
+            kubectl create -f {{ calico_operator_url }}
+          register: tigera_result
+          changed_when: tigera_result.rc == 0
+          failed_when: tigera_result.rc != 0 and 'AlreadyExists' not in tigera_result.stderr
+
+        - name: Wait for Tigera Operator to be ready
+          ansible.builtin.command: >
+            kubectl wait --for=condition=available deployment/tigera-operator
+            -n tigera-operator --timeout=120s
+          changed_when: false
+          retries: 3
+          delay: 10
+
+        - name: Create Calico custom resources
+          ansible.builtin.template:
+            src: calico-custom-resources.yaml.j2
+            dest: /tmp/calico-custom-resources.yaml
+            mode: '0644'
+
+        - name: Apply Calico custom resources
+          ansible.builtin.command: kubectl apply -f /tmp/calico-custom-resources.yaml
+          register: calico_cr_result
+          changed_when: calico_cr_result.rc == 0
+
+        - name: Wait for Calico to be ready
+          ansible.builtin.command: >
+            kubectl wait --for=condition=ready pod -l k8s-app=calico-node
+            -n calico-system --timeout={{ cni_ready_timeout }}s
+          changed_when: false
+          retries: 5
+          delay: 15
+
+    # ===========================================
+    # Cilium Installation (alternative)
+    # ===========================================
+    - name: Install Cilium CNI
+      when: cni_plugin == 'cilium'
+      block:
+        - name: Check if Cilium CLI is installed
+          ansible.builtin.command: which cilium
+          register: cilium_cli_check
+          changed_when: false
+          failed_when: false
+
+        - name: Install Cilium CLI
+          ansible.builtin.shell: |
+            CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+            CLI_ARCH=amd64
+            if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+            curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+            sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+            sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+            rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+          when: cilium_cli_check.rc != 0
+
+        - name: Install Cilium
+          ansible.builtin.command: cilium install
+          register: cilium_install
+          changed_when: "'Cilium was successfully installed' in cilium_install.stdout"
+
+        - name: Wait for Cilium to be ready
+          ansible.builtin.command: cilium status --wait
+          changed_when: false
+          retries: 5
+          delay: 15
+
+# ===========================================
+# Verify CNI is working
+# ===========================================
+- name: Verify CNI is functional
+  when: node_role | default('master') == 'master'
+  block:
+    - name: Check all nodes are Ready
+      ansible.builtin.command: kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}'
+      register: nodes_ready
+      retries: 10
+      delay: 10
+      until: "'False' not in nodes_ready.stdout"
+      changed_when: false
+
+    - name: Display CNI status
+      ansible.builtin.debug:
+        msg: |
+          ✅ CNI ({{ cni_plugin }}) installed successfully!
+          All nodes are Ready.

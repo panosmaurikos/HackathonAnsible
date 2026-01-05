@@ -1,0 +1,11 @@
+---
+# MicroK8s default variables
+microk8s_version: ""
+microk8s_channel: "1.29"
+microk8s_use_calico: true
+
+microk8s_addons:
+  - dns
+  - storage
+  - helm3
+  - rbac
