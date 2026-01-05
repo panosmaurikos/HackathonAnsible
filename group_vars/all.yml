@@ -6,7 +6,6 @@
 # Distribution Selection
 # ===========================================
 # Options: k3s, microk8s
-k8s_distribution: "k3s"
 
 # ===========================================
 # K3s Configuration
