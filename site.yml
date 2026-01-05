@@ -7,21 +7,26 @@
   pre_tasks:
     - name: Display distribution menu
       ansible.builtin.debug:
-        msg: |
-          ╔══════════════════════════════════════════════════════╗
-          ║   Kubernetes Distribution Selection                 ║
-          ╚══════════════════════════════════════════════════════╝
-
-          1) k3s      - Lightweight Kubernetes (Recommended)
-          2) microk8s - Canonical's Kubernetes
+        msg:
+          - ""
+          - "================================================================"
+          - ""
+          - "           KUBERNETES DISTRIBUTION SELECTION"
+          - ""
+          - "================================================================"
+          - ""
+          - "  [1] k3s       - Lightweight Kubernetes (Recommended)"
+          - ""
+          - "  [2] microk8s  - Canonical's Kubernetes"
+          - ""
+          - "================================================================"
+          - ""
       when: k8s_distribution is not defined
       run_once: true
 
     - name: Interactive distribution selection
       ansible.builtin.pause:
-        prompt: |
-
-          Enter your choice (1 or 2) [1]
+        prompt: "Enter your choice (1 or 2) [Default: 1]"
       register: distribution_input
       when: k8s_distribution is not defined
       run_once: true
