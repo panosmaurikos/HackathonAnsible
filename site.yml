@@ -5,6 +5,16 @@
   gather_facts: true
 
   pre_tasks:
+    - name: Install whiptail for interactive menu
+      ansible.builtin.apt:
+        name: whiptail
+        state: present
+        update_cache: yes
+      delegate_to: localhost
+      run_once: true
+      when: k8s_distribution is not defined
+      become: true
+
     - name: Interactive distribution selection
       ansible.builtin.shell: |
         if command -v whiptail &> /dev/null; then
