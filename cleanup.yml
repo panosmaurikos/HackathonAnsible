@@ -1,0 +1,552 @@
+---
+- name: Cleanup Kubernetes Installation
+  hosts: k8s_nodes
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Display cleanup warning
+      ansible.builtin.debug:
+        msg:
+          - ""
+          - "================================================================"
+          - ""
+          - "           KUBERNETES CLEANUP - UNINSTALL"
+          - ""
+          - "================================================================"
+          - ""
+          - "  This will remove:"
+          - "    - Kubernetes (k3s/microk8s)"
+          - "    - Calico CNI"
+          - "    - Kubeconfig files"
+          - "    - kubectl aliases"
+          - "    - Kernel module configurations"
+          - ""
+          - "================================================================"
+          - ""
+      run_once: true
+
+    - name: Confirm cleanup
+      ansible.builtin.pause:
+        prompt: "Are you sure you want to cleanup? (yes/no) [no]"
+      register: cleanup_confirm
+      run_once: true
+
+    - name: Abort if not confirmed
+      ansible.builtin.fail:
+        msg: "Cleanup cancelled by user"
+      when: cleanup_confirm.user_input | lower != 'yes'
+      run_once: true
+
+  tasks:
+    # ===========================================
+    # Robust Detection - Multiple Methods
+    # ===========================================
+
+    # Method 1: Check standard binary locations
+    - name: Check if k3s binary exists (standard location)
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s
+      register: k3s_binary_check
+
+    # Method 2: Check if k3s is in PATH
+    - name: Check if k3s is in PATH
+      ansible.builtin.command: which k3s
+      register: k3s_which
+      changed_when: false
+      failed_when: false
+
+    # Method 3: Check if k3s service is running
+    - name: Check if k3s systemd service exists
+      ansible.builtin.systemd:
+        name: k3s
+      register: k3s_service
+      failed_when: false
+
+    # Method 4: Check for k3s processes
+    - name: Check for running k3s processes
+      ansible.builtin.shell: ps aux | grep -v grep | grep -q k3s
+      register: k3s_process
+      changed_when: false
+      failed_when: false
+
+    # Set fact if k3s is installed (any method)
+    - name: Determine if k3s is installed
+      ansible.builtin.set_fact:
+        k3s_detected: "{{ k3s_binary_check.stat.exists or k3s_which.rc == 0 or k3s_service is succeeded or k3s_process.rc == 0 }}"
+
+    # MicroK8s Detection
+    - name: Check if microk8s snap is installed
+      ansible.builtin.command: snap list microk8s
+      register: microk8s_snap_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check if microk8s is in PATH
+      ansible.builtin.command: which microk8s
+      register: microk8s_which
+      changed_when: false
+      failed_when: false
+
+    - name: Check for running microk8s processes
+      ansible.builtin.shell: ps aux | grep -v grep | grep -q microk8s
+      register: microk8s_process
+      changed_when: false
+      failed_when: false
+
+    # Set fact if microk8s is installed
+    - name: Determine if microk8s is installed
+      ansible.builtin.set_fact:
+        microk8s_detected: "{{ microk8s_snap_check.rc == 0 or microk8s_which.rc == 0 or microk8s_process.rc == 0 }}"
+
+    # Display what was detected
+    - name: Display detection results
+      ansible.builtin.debug:
+        msg:
+          - "Detection Results:"
+          - "  k3s detected: {{ k3s_detected }}"
+          - "  microk8s detected: {{ microk8s_detected }}"
+
+    # ===========================================
+    # Uninstall K3s (comprehensive cleanup)
+    # ===========================================
+    - name: Stop k3s service (if running)
+      ansible.builtin.systemd:
+        name: k3s
+        state: stopped
+      when: k3s_detected | bool
+      failed_when: false
+
+    - name: Check for k3s-uninstall script (multiple locations)
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/local/bin/k3s-uninstall.sh
+        - /usr/bin/k3s-uninstall.sh
+        - /opt/k3s/k3s-uninstall.sh
+      register: k3s_uninstall_scripts
+      when: k3s_detected | bool
+
+    - name: Run k3s-uninstall script (if found)
+      ansible.builtin.command: "{{ item.stat.path }}"
+      loop: "{{ k3s_uninstall_scripts.results }}"
+      when:
+        - k3s_detected | bool
+        - item.stat is defined
+        - item.stat.exists
+      register: k3s_uninstall_result
+      failed_when: false
+
+    - name: Check for k3s-agent-uninstall script
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/local/bin/k3s-agent-uninstall.sh
+        - /usr/bin/k3s-agent-uninstall.sh
+      register: k3s_agent_uninstall_scripts
+      when: k3s_detected | bool
+
+    - name: Run k3s-agent-uninstall script (if found)
+      ansible.builtin.command: "{{ item.stat.path }}"
+      loop: "{{ k3s_agent_uninstall_scripts.results }}"
+      when:
+        - k3s_detected | bool
+        - item.stat is defined
+        - item.stat.exists
+      failed_when: false
+
+    # Manual k3s cleanup if uninstall script not found
+    - name: Kill k3s processes (if still running)
+      ansible.builtin.shell: killall -9 k3s
+      when: k3s_detected | bool
+      failed_when: false
+
+    - name: Remove k3s systemd service files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/k3s.service
+        - /etc/systemd/system/k3s-agent.service
+        - /etc/systemd/system/k3s.service.env
+      when: k3s_detected | bool
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      when: k3s_detected | bool
+
+    - name: Remove k3s directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/rancher
+        - /etc/rancher
+        - /var/lib/kubelet
+        - /var/lib/cni
+        - /opt/cni
+        - /run/k3s
+      when: k3s_detected | bool
+
+    - name: Remove k3s binaries
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/k3s
+        - /usr/local/bin/kubectl
+        - /usr/local/bin/crictl
+        - /usr/local/bin/ctr
+      when: k3s_detected | bool
+
+    # ===========================================
+    # Uninstall MicroK8s (comprehensive cleanup)
+    # ===========================================
+    - name: Stop microk8s
+      ansible.builtin.command: microk8s stop
+      when: microk8s_detected | bool
+      failed_when: false
+      changed_when: false
+
+    - name: Remove microk8s snap (purge all data)
+      ansible.builtin.command: snap remove microk8s --purge
+      when: microk8s_detected | bool
+      register: microk8s_uninstall
+
+    - name: Remove microk8s directories (if still exist)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/snap/microk8s
+        - /snap/microk8s
+      when: microk8s_detected | bool
+
+    # ===========================================
+    # Remove kubectl (if installed via snap)
+    # ===========================================
+    - name: Check if kubectl snap is installed
+      ansible.builtin.command: snap list kubectl
+      register: kubectl_snap_check
+      changed_when: false
+      failed_when: false
+
+    - name: Remove kubectl snap
+      ansible.builtin.command: snap remove kubectl
+      when: kubectl_snap_check.rc == 0
+
+    # ===========================================
+    # Clean Kubeconfig files (all users)
+    # ===========================================
+    - name: Find all .kube directories in /home
+      ansible.builtin.find:
+        paths: /home
+        patterns: ".kube"
+        file_type: directory
+        recurse: no
+      register: home_kube_dirs
+
+    - name: Remove user kubeconfig directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ home_kube_dirs.files }}"
+
+    - name: Remove root kubeconfig directory
+      ansible.builtin.file:
+        path: /root/.kube
+        state: absent
+
+    # ===========================================
+    # Remove kubectl aliases from bashrc (all users)
+    # ===========================================
+    - name: Find all .bashrc files in /home
+      ansible.builtin.find:
+        paths: /home
+        patterns: ".bashrc"
+        file_type: file
+        recurse: no
+      register: home_bashrc_files
+
+    - name: Remove kubectl aliases from user bashrc files
+      ansible.builtin.blockinfile:
+        path: "{{ item.path }}"
+        marker: "# {mark} ANSIBLE MANAGED - KUBECTL ALIASES"
+        state: absent
+      loop: "{{ home_bashrc_files.files }}"
+      failed_when: false
+
+    - name: Remove KUBECONFIG export from user bashrc files
+      ansible.builtin.lineinfile:
+        path: "{{ item.path }}"
+        regexp: '^export KUBECONFIG=.*\.kube/config'
+        state: absent
+      loop: "{{ home_bashrc_files.files }}"
+      failed_when: false
+
+    - name: Remove kubectl aliases from root bashrc
+      ansible.builtin.blockinfile:
+        path: /root/.bashrc
+        marker: "# {mark} ANSIBLE MANAGED - KUBECTL ALIASES"
+        state: absent
+      failed_when: false
+
+    - name: Remove KUBECONFIG export from root bashrc
+      ansible.builtin.lineinfile:
+        path: /root/.bashrc
+        regexp: '^export KUBECONFIG=/root/.kube/config'
+        state: absent
+      failed_when: false
+
+    # ===========================================
+    # Remove kubectl bash completion
+    # ===========================================
+    - name: Remove kubectl bash completion
+      ansible.builtin.file:
+        path: /etc/bash_completion.d/kubectl
+        state: absent
+
+    # ===========================================
+    # Clean kernel modules configuration
+    # ===========================================
+    - name: Remove kernel modules from /etc/modules-load.d
+      ansible.builtin.file:
+        path: /etc/modules-load.d/k8s.conf
+        state: absent
+
+    - name: Unload kernel modules
+      ansible.builtin.shell: "modprobe -r {{ item }}"
+      loop:
+        - br_netfilter
+        - overlay
+      failed_when: false
+      changed_when: false
+
+    # ===========================================
+    # Clean sysctl configuration
+    # ===========================================
+    - name: Remove sysctl k8s configuration
+      ansible.builtin.file:
+        path: /etc/sysctl.d/k8s.conf
+        state: absent
+
+    - name: Reload sysctl
+      ansible.builtin.command: sysctl --system
+      changed_when: false
+      failed_when: false
+
+    # ===========================================
+    # Clean CNI and networking
+    # ===========================================
+    - name: Remove CNI directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/cni
+        - /opt/cni
+        - /var/lib/cni
+
+    - name: Remove Calico manifests
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/calico-operator.yaml
+        - /tmp/calico-custom-resources.yaml
+        - /tmp/calico-crd.yaml
+      failed_when: false
+
+    # ===========================================
+    # Clean MLOps Stack (Reverse Order: KServe → Cert-Manager → Knative → Istio)
+    # ===========================================
+
+    # Detection
+    - name: Detect installed MLOps components
+      block:
+        - name: Check if KServe is installed
+          ansible.builtin.command: kubectl get namespace kserve
+          register: kserve_installed
+          changed_when: false
+          failed_when: false
+
+        - name: Check if Knative Serving is installed
+          ansible.builtin.command: kubectl get namespace knative-serving
+          register: knative_installed
+          changed_when: false
+          failed_when: false
+
+        - name: Check if cert-manager is installed
+          ansible.builtin.command: kubectl get namespace cert-manager
+          register: cert_manager_installed
+          changed_when: false
+          failed_when: false
+
+        - name: Check if Istio is installed
+          ansible.builtin.command: kubectl get namespace istio-system
+          register: istio_installed
+          changed_when: false
+          failed_when: false
+
+    # Remove KServe
+    - name: Remove KServe
+      when: kserve_installed.rc == 0
+      block:
+        - name: Delete all InferenceService resources
+          ansible.builtin.command: kubectl delete inferenceservices --all --all-namespaces --timeout=60s
+          register: kserve_services_delete
+          changed_when: "'deleted' in kserve_services_delete.stdout"
+          failed_when: false
+
+        - name: Delete KServe cluster resources
+          ansible.builtin.command: kubectl delete -f https://github.com/kserve/kserve/releases/download/v0.12.0/kserve-cluster-resources.yaml
+          register: kserve_cluster_delete
+          changed_when: "'deleted' in kserve_cluster_delete.stdout"
+          failed_when: false
+
+        - name: Delete KServe core
+          ansible.builtin.command: kubectl delete -f https://github.com/kserve/kserve/releases/download/v0.12.0/kserve.yaml
+          register: kserve_delete
+          changed_when: "'deleted' in kserve_delete.stdout"
+          failed_when: false
+
+        - name: Force delete kserve namespace
+          ansible.builtin.command: kubectl delete namespace kserve --force --grace-period=0
+          failed_when: false
+
+    # Remove Cert-Manager
+    - name: Remove cert-manager
+      when: cert_manager_installed.rc == 0
+      block:
+        - name: Delete cert-manager
+          ansible.builtin.command: kubectl delete -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+          register: cert_manager_delete
+          changed_when: "'deleted' in cert_manager_delete.stdout"
+          failed_when: false
+
+        - name: Force delete cert-manager namespace
+          ansible.builtin.command: kubectl delete namespace cert-manager --force --grace-period=0
+          failed_when: false
+
+    # Remove Knative Serving
+    - name: Remove Knative Serving
+      when: knative_installed.rc == 0
+      block:
+        - name: Delete all Knative Services
+          ansible.builtin.command: kubectl delete ksvc --all --all-namespaces --timeout=60s
+          register: ksvc_delete
+          changed_when: "'deleted' in ksvc_delete.stdout"
+          failed_when: false
+
+        - name: Delete net-istio controller
+          ansible.builtin.command: kubectl delete -f https://github.com/knative/net-istio/releases/download/knative-v1.20.1/net-istio.yaml
+          register: net_istio_delete
+          changed_when: "'deleted' in net_istio_delete.stdout"
+          failed_when: false
+
+        - name: Delete Knative core
+          ansible.builtin.command: kubectl delete -f https://github.com/knative/serving/releases/download/knative-v1.20.1/serving-core.yaml
+          register: knative_core_delete
+          changed_when: "'deleted' in knative_core_delete.stdout"
+          failed_when: false
+
+        - name: Delete Knative CRDs
+          ansible.builtin.command: kubectl delete -f https://github.com/knative/serving/releases/download/knative-v1.20.1/serving-crds.yaml
+          register: knative_crds_delete
+          changed_when: "'deleted' in knative_crds_delete.stdout"
+          failed_when: false
+
+        - name: Force delete knative-serving namespace
+          ansible.builtin.command: kubectl delete namespace knative-serving --force --grace-period=0
+          failed_when: false
+
+    # Remove Istio
+    - name: Remove Istio
+      when: istio_installed.rc == 0
+      block:
+        - name: Delete Istio
+          ansible.builtin.command: kubectl delete -f https://github.com/knative-extensions/net-istio/releases/download/knative-v1.20.1/istio.yaml
+          register: istio_delete
+          changed_when: "'deleted' in istio_delete.stdout"
+          failed_when: false
+
+        - name: Force delete istio-system namespace
+          ansible.builtin.command: kubectl delete namespace istio-system --force --grace-period=0
+          failed_when: false
+
+    # ===========================================
+    # Clean fact cache
+    # ===========================================
+    - name: Remove ansible fact cache
+      ansible.builtin.file:
+        path: /tmp/ansible_facts
+        state: absent
+      delegate_to: localhost
+      run_once: true
+
+    # ===========================================
+    # Clean iptables rules (optional - commented)
+    # ===========================================
+    # Uncomment if you want to flush iptables
+    # - name: Flush iptables
+    #   ansible.builtin.command: iptables -F
+    #   failed_when: false
+
+    # ===========================================
+    # Verify cleanup
+    # ===========================================
+    - name: Verify k3s is removed
+      ansible.builtin.command: which k3s
+      register: k3s_verify
+      changed_when: false
+      failed_when: false
+
+    - name: Verify microk8s is removed
+      ansible.builtin.command: which microk8s
+      register: microk8s_verify
+      changed_when: false
+      failed_when: false
+
+  post_tasks:
+    - name: Display cleanup summary
+      ansible.builtin.debug:
+        msg:
+          - ""
+          - "================================================================"
+          - ""
+          - "           ✓ CLEANUP COMPLETED"
+          - ""
+          - "================================================================"
+          - ""
+          - "  Removed:"
+          - "    {{ '✓' if k3s_detected else '○' }} k3s"
+          - "    {{ '✓' if microk8s_detected else '○' }} microk8s"
+          - "    {{ '✓' if kserve_installed.rc == 0 else '○' }} KServe"
+          - "    {{ '✓' if knative_installed.rc == 0 else '○' }} Knative Serving"
+          - "    {{ '✓' if cert_manager_installed.rc == 0 else '○' }} Cert-Manager"
+          - "    {{ '✓' if istio_installed.rc == 0 else '○' }} Istio"
+          - "    ✓ Kubeconfig files"
+          - "    ✓ kubectl aliases"
+          - "    ✓ Kernel module configs"
+          - "    ✓ Sysctl configurations"
+          - "    ✓ CNI directories"
+          - ""
+          - "  Verification:"
+          - "    k3s found: {{ 'NO ✓' if k3s_verify.rc != 0 else 'YES ✗' }}"
+          - "    microk8s found: {{ 'NO ✓' if microk8s_verify.rc != 0 else 'YES ✗' }}"
+          - ""
+          - "  System is now clean!"
+          - ""
+          - "================================================================"
+          - ""
+      run_once: true
+
+    - name: Reboot recommendation
+      ansible.builtin.debug:
+        msg:
+          - ""
+          - "RECOMMENDATION: Reboot the system to ensure all changes take effect:"
+          - "  sudo reboot"
+          - ""
+      run_once: true

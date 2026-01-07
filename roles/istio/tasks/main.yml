@@ -1,0 +1,114 @@
+---
+# Istio Installation Role
+
+- name: Check if Istio is already installed
+  ansible.builtin.command: kubectl get namespace {{ istio_namespace }}
+  register: istio_namespace_check
+  changed_when: false
+  failed_when: false
+
+- name: Display Istio installation status
+  ansible.builtin.debug:
+    msg: "Istio namespace {{ 'already exists' if istio_namespace_check.rc == 0 else 'will be created' }}"
+
+- name: Install Istio for Knative
+  when: node_role | default('master') == 'master'
+  block:
+    - name: Apply Istio manifest
+      ansible.builtin.command: >
+        kubectl apply -f {{ istio_manifest_url }}
+      register: istio_install
+      changed_when: "'created' in istio_install.stdout or 'configured' in istio_install.stdout"
+      failed_when: istio_install.rc != 0 and 'AlreadyExists' not in istio_install.stderr
+
+    - name: Wait for Istio namespace to be ready
+      ansible.builtin.command: kubectl get namespace {{ istio_namespace }}
+      register: istio_ns_ready
+      retries: 30
+      delay: 5
+      until: istio_ns_ready.rc == 0
+      changed_when: false
+
+    - name: Wait for istiod deployment to exist
+      ansible.builtin.command: >
+        kubectl get deployment istiod -n {{ istio_namespace }}
+      register: istiod_exists
+      retries: 30
+      delay: 5
+      until: istiod_exists.rc == 0
+      changed_when: false
+
+    - name: Scale down istiod for hackathon environment
+      ansible.builtin.command: >
+        kubectl scale deployment istiod
+        -n {{ istio_namespace }}
+        --replicas={{ istio_istiod_replicas }}
+      register: istiod_scale
+      changed_when: "'scaled' in istiod_scale.stdout"
+      retries: 3
+      delay: 5
+
+    - name: Wait for istio-ingressgateway deployment to exist
+      ansible.builtin.command: >
+        kubectl get deployment istio-ingressgateway -n {{ istio_namespace }}
+      register: ingress_exists
+      retries: 30
+      delay: 5
+      until: ingress_exists.rc == 0
+      changed_when: false
+
+    - name: Scale down istio-ingressgateway for hackathon environment
+      ansible.builtin.command: >
+        kubectl scale deployment istio-ingressgateway
+        -n {{ istio_namespace }}
+        --replicas={{ istio_ingressgateway_replicas }}
+      register: ingress_scale
+      changed_when: "'scaled' in ingress_scale.stdout"
+      retries: 3
+      delay: 5
+
+    - name: Delete all HPAs in istio-system
+      ansible.builtin.command: >
+        kubectl delete hpa --all -n {{ istio_namespace }}
+      register: hpa_delete
+      changed_when: "'deleted' in hpa_delete.stdout"
+      failed_when: false
+      when: istio_disable_hpa
+
+    - name: Wait for Istio pods to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=ready pod
+        --all -n {{ istio_namespace }}
+        --timeout={{ istio_ready_timeout }}s
+      changed_when: false
+      retries: 3
+      delay: 10
+      failed_when: false
+
+    - name: Verify istiod deployment is available
+      ansible.builtin.command: >
+        kubectl wait --for=condition=available deployment/istiod
+        -n {{ istio_namespace }}
+        --timeout=180s
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    - name: Verify istio-ingressgateway deployment is available
+      ansible.builtin.command: >
+        kubectl wait --for=condition=available deployment/istio-ingressgateway
+        -n {{ istio_namespace }}
+        --timeout=180s
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    - name: Display Istio installation status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Istio installed successfully!
+          Namespace: {{ istio_namespace }}
+          istiod replicas: {{ istio_istiod_replicas }}
+          ingress replicas: {{ istio_ingressgateway_replicas }}
+          ============================================

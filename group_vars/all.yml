@@ -116,3 +116,50 @@ k8s_firewall_ports:
 # ===========================================
 k8s_ready_timeout: 300  # seconds to wait for cluster to be ready
 cni_ready_timeout: 120  # seconds to wait for CNI to be ready
+
+# ===========================================
+# MLOps Stack Configuration
+# ===========================================
+# Feature flags for selective installation
+install_istio: true
+install_knative: true
+install_cert_manager: true
+install_kserve: true
+
+# ===========================================
+# Istio Configuration
+# ===========================================
+istio_version: "knative-v1.20.1"
+istio_namespace: "istio-system"
+istio_manifest_url: "https://github.com/knative-extensions/net-istio/releases/download/{{ istio_version }}/istio.yaml"
+istio_istiod_replicas: 1
+istio_ingressgateway_replicas: 1
+istio_disable_hpa: true
+istio_ready_timeout: 300
+
+# ===========================================
+# Knative Serving Configuration
+# ===========================================
+knative_version: "knative-v1.20.1"
+knative_serving_namespace: "knative-serving"
+knative_serving_crds_url: "https://github.com/knative/serving/releases/download/{{ knative_version }}/serving-crds.yaml"
+knative_serving_core_url: "https://github.com/knative/serving/releases/download/{{ knative_version }}/serving-core.yaml"
+knative_net_istio_url: "https://github.com/knative/net-istio/releases/download/{{ knative_version }}/net-istio.yaml"
+knative_ready_timeout: 300
+
+# ===========================================
+# Cert-Manager Configuration
+# ===========================================
+cert_manager_version: "v1.17.2"
+cert_manager_namespace: "cert-manager"
+cert_manager_manifest_url: "https://github.com/cert-manager/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.yaml"
+cert_manager_ready_timeout: 300
+
+# ===========================================
+# KServe Configuration
+# ===========================================
+kserve_version: "v0.12.0"
+kserve_namespace: "kserve"
+kserve_manifest_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve.yaml"
+kserve_cluster_resources_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve-cluster-resources.yaml"
+kserve_ready_timeout: 300

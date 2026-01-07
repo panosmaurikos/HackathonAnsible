@@ -1,0 +1,12 @@
+---
+# Knative Serving default variables
+knative_version: "knative-v1.20.1"
+knative_serving_namespace: "knative-serving"
+
+# Manifest URLs
+knative_serving_crds_url: "https://github.com/knative/serving/releases/download/{{ knative_version }}/serving-crds.yaml"
+knative_serving_core_url: "https://github.com/knative/serving/releases/download/{{ knative_version }}/serving-core.yaml"
+knative_net_istio_url: "https://github.com/knative/net-istio/releases/download/{{ knative_version }}/net-istio.yaml"
+
+# Timeout settings
+knative_ready_timeout: 300

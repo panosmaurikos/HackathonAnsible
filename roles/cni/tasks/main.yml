@@ -37,13 +37,22 @@
           register: calico_cr_result
           changed_when: calico_cr_result.rc == 0
 
-        - name: Wait for Calico to be ready
+        - name: Find Calico namespace
+          ansible.builtin.shell: kubectl get pods -A -l k8s-app=calico-node -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null || echo "calico-system"
+          register: calico_namespace
+          changed_when: false
+          retries: 10
+          delay: 10
+          until: calico_namespace.stdout != ""
+
+        - name: Wait for Calico pods to be ready
           ansible.builtin.command: >
             kubectl wait --for=condition=ready pod -l k8s-app=calico-node
-            -n calico-system --timeout={{ cni_ready_timeout }}s
+            -n {{ calico_namespace.stdout }} --timeout={{ cni_ready_timeout }}s
           changed_when: false
-          retries: 5
-          delay: 15
+          retries: 3
+          delay: 10
+          failed_when: false
 
     # ===========================================
     # Cilium Installation (alternative)

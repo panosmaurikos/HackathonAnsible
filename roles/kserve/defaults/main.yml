@@ -1,0 +1,9 @@
+---
+# KServe default variables
+kserve_version: "v0.12.0"
+kserve_namespace: "kserve"
+kserve_manifest_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve.yaml"
+kserve_cluster_resources_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve-cluster-resources.yaml"
+
+# Timeout settings
+kserve_ready_timeout: 300

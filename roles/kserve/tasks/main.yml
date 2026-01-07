@@ -1,0 +1,93 @@
+---
+# KServe Installation Role
+
+- name: Check if KServe is already installed
+  ansible.builtin.command: kubectl get namespace {{ kserve_namespace }}
+  register: kserve_namespace_check
+  changed_when: false
+  failed_when: false
+
+- name: Install KServe
+  when: node_role | default('master') == 'master'
+  block:
+    # STEP 1: Install KServe CRDs and Core
+    - name: Apply KServe manifest (server-side apply)
+      ansible.builtin.command: >
+        kubectl apply --server-side -f {{ kserve_manifest_url }}
+      register: kserve_install
+      changed_when: "'created' in kserve_install.stdout or 'configured' in kserve_install.stdout"
+      failed_when: kserve_install.rc != 0 and 'AlreadyExists' not in kserve_install.stderr
+
+    - name: Wait for KServe namespace
+      ansible.builtin.command: kubectl get namespace {{ kserve_namespace }}
+      register: kserve_ns_ready
+      retries: 30
+      delay: 5
+      until: kserve_ns_ready.rc == 0
+      changed_when: false
+
+    - name: Wait for KServe CRDs to be established
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=established \
+        --all crd -l app.kubernetes.io/name=kserve \
+        --timeout=120s
+      register: kserve_crds_ready
+      changed_when: false
+      retries: 5
+      delay: 10
+      failed_when: false
+
+    - name: Wait for KServe controller deployment to exist
+      ansible.builtin.command: kubectl get deployment kserve-controller-manager -n {{ kserve_namespace }}
+      register: kserve_controller_deploy
+      retries: 30
+      delay: 5
+      until: kserve_controller_deploy.rc == 0
+      changed_when: false
+
+    - name: Wait for KServe webhook pods to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=ready pod
+        -l control-plane=kserve-controller-manager
+        -n {{ kserve_namespace }}
+        --timeout=180s
+      changed_when: false
+      retries: 5
+      delay: 10
+      failed_when: false
+
+    # STEP 2: Install KServe Cluster Resources
+    - name: Apply KServe cluster resources (server-side apply)
+      ansible.builtin.command: >
+        kubectl apply --server-side -f {{ kserve_cluster_resources_url }}
+      register: kserve_cluster_resources
+      changed_when: "'created' in kserve_cluster_resources.stdout or 'configured' in kserve_cluster_resources.stdout"
+      failed_when: kserve_cluster_resources.rc != 0 and 'AlreadyExists' not in kserve_cluster_resources.stderr
+
+    - name: Wait for KServe controller pods to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=ready pod
+        -l control-plane=kserve-controller-manager
+        -n {{ kserve_namespace }}
+        --timeout={{ kserve_ready_timeout }}s
+      changed_when: false
+      retries: 3
+      delay: 10
+      failed_when: false
+
+    - name: Verify KServe deployments
+      ansible.builtin.command: >
+        kubectl get deployments -n {{ kserve_namespace }}
+      register: kserve_deployments
+      changed_when: false
+
+    - name: Display KServe status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          KServe installed successfully!
+          Namespace: {{ kserve_namespace }}
+          Version: {{ kserve_version }}
+          ============================================
+          {{ kserve_deployments.stdout }}
+          ============================================

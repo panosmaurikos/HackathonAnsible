@@ -1,0 +1,64 @@
+---
+# Cert-Manager Installation Role
+
+- name: Check if cert-manager is already installed
+  ansible.builtin.command: kubectl get namespace {{ cert_manager_namespace }}
+  register: cert_manager_namespace_check
+  changed_when: false
+  failed_when: false
+
+- name: Install cert-manager
+  when: node_role | default('master') == 'master'
+  block:
+    - name: Apply cert-manager manifest
+      ansible.builtin.command: >
+        kubectl apply -f {{ cert_manager_manifest_url }}
+      register: cert_manager_install
+      changed_when: "'created' in cert_manager_install.stdout or 'configured' in cert_manager_install.stdout"
+      failed_when: cert_manager_install.rc != 0 and 'AlreadyExists' not in cert_manager_install.stderr
+
+    - name: Wait for cert-manager namespace
+      ansible.builtin.command: kubectl get namespace {{ cert_manager_namespace }}
+      register: cert_manager_ns_ready
+      retries: 30
+      delay: 5
+      until: cert_manager_ns_ready.rc == 0
+      changed_when: false
+
+    - name: Wait for cert-manager CRDs to be established
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=established \
+        --all crd -l app.kubernetes.io/instance=cert-manager \
+        --timeout=120s
+      register: cert_manager_crds_ready
+      changed_when: false
+      retries: 5
+      delay: 10
+      failed_when: false
+
+    - name: Wait for cert-manager pods to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=ready pod
+        --all -n {{ cert_manager_namespace }}
+        --timeout={{ cert_manager_ready_timeout }}s
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    - name: Verify cert-manager webhook is ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=available deployment/cert-manager-webhook
+        -n {{ cert_manager_namespace }}
+        --timeout=180s
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    - name: Display cert-manager status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          cert-manager installed successfully!
+          Namespace: {{ cert_manager_namespace }}
+          Version: {{ cert_manager_version }}
+          ============================================

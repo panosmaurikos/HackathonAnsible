@@ -1,0 +1,132 @@
+---
+# Knative Serving Installation Role
+
+- name: Check if Knative Serving is already installed
+  ansible.builtin.command: kubectl get namespace {{ knative_serving_namespace }}
+  register: knative_namespace_check
+  changed_when: false
+  failed_when: false
+
+- name: Verify Istio prerequisites
+  when: node_role | default('master') == 'master'
+  block:
+    - name: Check if Istio is installed
+      ansible.builtin.command: kubectl get namespace istio-system
+      register: istio_check
+      changed_when: false
+      failed_when: istio_check.rc != 0
+
+    - name: Verify istiod is available
+      ansible.builtin.command: >
+        kubectl wait --for=condition=available deployment/istiod
+        -n istio-system
+        --timeout=60s
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    - name: Verify istio-ingressgateway is available
+      ansible.builtin.command: >
+        kubectl wait --for=condition=available deployment/istio-ingressgateway
+        -n istio-system
+        --timeout=60s
+      changed_when: false
+      retries: 3
+      delay: 10
+
+- name: Install Knative Serving
+  when: node_role | default('master') == 'master'
+  block:
+    # Install Serving CRDs
+    - name: Install Knative Serving CRDs
+      ansible.builtin.command: >
+        kubectl apply -f {{ knative_serving_crds_url }}
+      register: knative_crds
+      changed_when: "'created' in knative_crds.stdout or 'configured' in knative_crds.stdout"
+      failed_when: knative_crds.rc != 0 and 'AlreadyExists' not in knative_crds.stderr
+
+    - name: Wait for Knative Serving CRDs to be established
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=established \
+        --all crd -l app.kubernetes.io/name=knative-serving \
+        --timeout=60s
+      register: crds_ready
+      changed_when: false
+      retries: 5
+      delay: 10
+      failed_when: false
+
+    #  Install Serving Core
+    - name: Install Knative Serving Core
+      ansible.builtin.command: >
+        kubectl apply -f {{ knative_serving_core_url }}
+      register: knative_core
+      changed_when: "'created' in knative_core.stdout or 'configured' in knative_core.stdout"
+      failed_when: knative_core.rc != 0 and 'AlreadyExists' not in knative_core.stderr
+
+    - name: Wait for Knative Serving namespace
+      ansible.builtin.command: kubectl get namespace {{ knative_serving_namespace }}
+      register: knative_ns_ready
+      retries: 30
+      delay: 5
+      until: knative_ns_ready.rc == 0
+      changed_when: false
+
+    - name: Wait for Knative core controller deployment to exist
+      ansible.builtin.command: kubectl get deployment controller -n {{ knative_serving_namespace }}
+      register: knative_controller_exists
+      retries: 30
+      delay: 5
+      until: knative_controller_exists.rc == 0
+      changed_when: false
+
+    - name: Wait for Knative core webhook deployment to exist
+      ansible.builtin.command: kubectl get deployment webhook -n {{ knative_serving_namespace }}
+      register: knative_webhook_exists
+      retries: 30
+      delay: 5
+      until: knative_webhook_exists.rc == 0
+      changed_when: false
+
+    - name: Wait for Knative core deployments to be available
+      ansible.builtin.shell: |
+        kubectl wait --for=condition=available deployment/controller -n {{ knative_serving_namespace }} --timeout=120s && \
+        kubectl wait --for=condition=available deployment/webhook -n {{ knative_serving_namespace }} --timeout=120s
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    #  Install Net-Istio Controller
+    - name: Install Knative Net-Istio Controller
+      ansible.builtin.command: >
+        kubectl apply -f {{ knative_net_istio_url }}
+      register: net_istio
+      changed_when: "'created' in net_istio.stdout or 'configured' in net_istio.stdout"
+      failed_when: net_istio.rc != 0 and 'AlreadyExists' not in net_istio.stderr
+
+    - name: Wait for Knative Serving pods to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=ready pod
+        --all -n {{ knative_serving_namespace }}
+        --timeout={{ knative_ready_timeout }}s
+      changed_when: false
+      retries: 3
+      delay: 10
+      failed_when: false
+
+    - name: Verify Knative Serving deployments
+      ansible.builtin.command: >
+        kubectl get deployments -n {{ knative_serving_namespace }}
+      register: knative_deployments
+      changed_when: false
+
+    - name: Display Knative Serving status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Knative Serving installed successfully!
+          Namespace: {{ knative_serving_namespace }}
+          Components: CRDs, Core, Net-Istio
+          ============================================
+          {{ knative_deployments.stdout }}
+          ============================================

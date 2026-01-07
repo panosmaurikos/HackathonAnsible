@@ -1,0 +1,13 @@
+---
+# Istio default variables
+istio_version: "knative-v1.20.1"
+istio_namespace: "istio-system"
+istio_manifest_url: "https://github.com/knative-extensions/net-istio/releases/download/{{ istio_version }}/istio.yaml"
+
+# Resource optimization for hackathon
+istio_istiod_replicas: 1
+istio_ingressgateway_replicas: 1
+istio_disable_hpa: true
+
+# Timeout settings
+istio_ready_timeout: 300

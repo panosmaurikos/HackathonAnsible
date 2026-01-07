@@ -52,6 +52,10 @@
           ============================================
           Distribution: {{ k8s_distribution }}
           CNI: {{ cni_plugin | default('calico') }}
+          Istio: {{ install_istio | default(true) }}
+          Knative: {{ install_knative | default(true) }}
+          Cert-Manager: {{ install_cert_manager | default(true) }}
+          KServe: {{ install_kserve | default(true) }}
           ============================================
 
   roles:
@@ -70,6 +74,25 @@
       when: k8s_distribution == 'k3s'
       tags: [cni, networking]
 
+    # ===========================================
+    # MLOps Stack
+    # ===========================================
+    - role: istio
+      when: install_istio | default(true)
+      tags: [istio, service-mesh, mlops]
+
+    - role: knative
+      when: install_knative | default(true)
+      tags: [knative, serverless, mlops]
+
+    - role: cert-manager
+      when: install_cert_manager | default(true)
+      tags: [cert-manager, certificates, mlops]
+
+    - role: kserve
+      when: install_kserve | default(true)
+      tags: [kserve, ml-serving, mlops]
+
   post_tasks:
     - name: Verify cluster is ready
       ansible.builtin.command: kubectl get nodes
@@ -87,3 +110,17 @@
           ============================================
           {{ nodes_output.stdout }}
           ============================================
+
+    - name: Display MLOps stack status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          MLOps Stack Status
+          ============================================
+          Components Installed:
+          {{ '✓' if install_istio | default(true) else '○' }} Istio (Service Mesh)
+          {{ '✓' if install_knative | default(true) else '○' }} Knative Serving (Serverless)
+          {{ '✓' if install_cert_manager | default(true) else '○' }} Cert-Manager (TLS)
+          {{ '✓' if install_kserve | default(true) else '○' }} KServe (ML Model Serving)
+          ============================================
+      when: install_istio | default(true) or install_knative | default(true)
