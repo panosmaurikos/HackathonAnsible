@@ -1,0 +1,7 @@
+---
+install_monitoring: true
+kube_prometheus_version: "v0.14.0"
+kube_prometheus_base_url: "https://raw.githubusercontent.com/prometheus-operator/kube-prometheus"
+monitoring_namespace: "monitoring"
+grafana_nodeport: 30300
+prometheus_nodeport: 30900

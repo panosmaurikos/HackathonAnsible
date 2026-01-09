@@ -1,0 +1,117 @@
+---
+# Grafana Dashboards Role
+
+- name: Deploy Grafana dashboards
+  when: node_role | default('master') == 'master'
+  block:
+    - name: Check if Grafana deployment exists
+      ansible.builtin.command: kubectl get deployment grafana -n {{ monitoring_namespace }}
+      register: grafana_check
+      changed_when: false
+      failed_when: false
+
+    - name: Create Knative Control Plane dashboard ConfigMap
+      ansible.builtin.shell: |
+        kubectl create configmap knative-control-plane-dashboard \
+          --from-file=knative-control-plane.json={{ role_path }}/files/knative-control-plane-dashboard.json \
+          -n {{ monitoring_namespace }} \
+          --dry-run=client -o yaml | \
+        kubectl label -f - grafana_dashboard=1 --local --dry-run=client -o yaml | \
+        kubectl apply -f -
+      register: control_plane_dashboard
+      changed_when: "'created' in control_plane_dashboard.stdout or 'configured' in control_plane_dashboard.stdout"
+      failed_when: control_plane_dashboard.rc != 0 and 'AlreadyExists' not in control_plane_dashboard.stderr
+      when: grafana_check.rc == 0
+
+    - name: Create Knative Reconciler dashboard ConfigMap
+      ansible.builtin.shell: |
+        kubectl create configmap knative-reconciler-dashboard \
+          --from-file=knative-reconciler.json={{ role_path }}/files/knative-reconciler-dashboard.json \
+          -n {{ monitoring_namespace }} \
+          --dry-run=client -o yaml | \
+        kubectl label -f - grafana_dashboard=1 --local --dry-run=client -o yaml | \
+        kubectl apply -f -
+      register: reconciler_dashboard
+      changed_when: "'created' in reconciler_dashboard.stdout or 'configured' in reconciler_dashboard.stdout"
+      failed_when: reconciler_dashboard.rc != 0 and 'AlreadyExists' not in reconciler_dashboard.stderr
+      when: grafana_check.rc == 0
+
+    - name: Wait for Grafana to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=ready pod
+        -l app.kubernetes.io/name=grafana
+        -n {{ monitoring_namespace }}
+        --timeout=60s
+      changed_when: false
+      when: grafana_check.rc == 0
+
+    - name: Get Grafana service endpoint
+      ansible.builtin.command: kubectl get svc grafana -n {{ monitoring_namespace }} -o jsonpath='{.spec.clusterIP}'
+      register: grafana_ip
+      changed_when: false
+      when: grafana_check.rc == 0
+
+    - name: Import Knative Control Plane dashboard to Grafana
+      ansible.builtin.shell: |
+        cat {{ role_path }}/files/knative-control-plane-dashboard.json | \
+        sed 's/nuc6/{{ cluster_name }}/g' | \
+        jq 'del(.id, .uid) | {dashboard: ., overwrite: true}' > /tmp/knative-cp-dashboard.json
+        curl -s -X POST http://admin:admin@{{ grafana_ip.stdout }}:3000/api/dashboards/db \
+          -H "Content-Type: application/json" \
+          --data-binary @/tmp/knative-cp-dashboard.json
+        rm -f /tmp/knative-cp-dashboard.json
+      register: import_control_plane
+      changed_when: "'success' in import_control_plane.stdout"
+      failed_when: import_control_plane.rc != 0
+      when: grafana_check.rc == 0
+
+    - name: Import Knative Reconciler dashboard to Grafana
+      ansible.builtin.shell: |
+        cat {{ role_path }}/files/knative-reconciler-dashboard.json | \
+        sed 's/nuc6/{{ cluster_name }}/g' | \
+        jq 'del(.id, .uid) | {dashboard: ., overwrite: true}' > /tmp/knative-rec-dashboard.json
+        curl -s -X POST http://admin:admin@{{ grafana_ip.stdout }}:3000/api/dashboards/db \
+          -H "Content-Type: application/json" \
+          --data-binary @/tmp/knative-rec-dashboard.json
+        rm -f /tmp/knative-rec-dashboard.json
+      register: import_reconciler
+      changed_when: "'success' in import_reconciler.stdout"
+      failed_when: import_reconciler.rc != 0
+      when: grafana_check.rc == 0
+
+    - name: Get node IP
+      ansible.builtin.shell: kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
+      register: node_ip
+      changed_when: false
+      when: grafana_check.rc == 0
+
+    - name: Get dashboard URLs from Grafana
+      ansible.builtin.shell: |
+        sleep 2
+        curl -s http://{{ grafana_ip.stdout }}:3000/api/search?type=dash-db | \
+        jq -r '.[] | select(.title | contains("Knative")) | "\(.title)|{{ node_ip.stdout }}:30300\(.url)"'
+      register: dashboard_urls
+      changed_when: false
+      failed_when: false
+      when: grafana_check.rc == 0
+
+    - name: Display dashboard deployment status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Grafana Dashboards Deployed Successfully!
+          ============================================
+
+          📊 Available Dashboards:
+          {% for line in dashboard_urls.stdout_lines %}
+          {% set parts = line.split('|') %}
+          - {{ parts[0] }}
+            http://{{ parts[1] }}
+          {% endfor %}
+
+          Main Grafana URL:
+          http://{{ node_ip.stdout }}:30300
+
+          Note: Anonymous access is enabled - no login required
+          ============================================
+      when: grafana_check.rc == 0 and dashboard_urls.stdout_lines | length > 0

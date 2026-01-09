@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kserve-inference-pods
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: kserve-metrics
+spec:
+  selector:
+    matchLabels:
+      component: predictor
+  namespaceSelector:
+    any: true
+  podMetricsEndpoints:
+    - path: /metrics
+      port: metrics
+      interval: 15s

@@ -64,10 +64,9 @@
 # ===========================================
 # Setup kubectl without microk8s prefix
 # ===========================================
-- name: Create kubeconfig for user
+- name: Generate MicroK8s kubeconfig for user
   ansible.builtin.shell: microk8s config > {{ kubeconfig_dir }}/config
-  args:
-    creates: "{{ kubeconfig_dir }}/config"
+  changed_when: true
 
 - name: Set kubeconfig permissions
   ansible.builtin.file:
@@ -76,10 +75,9 @@
     group: "{{ kubeconfig_group }}"
     mode: '0600'
 
-- name: Create kubeconfig for root
+- name: Generate MicroK8s kubeconfig for root
   ansible.builtin.shell: microk8s config > /root/.kube/config
-  args:
-    creates: /root/.kube/config
+  changed_when: true
   when: setup_root_kubeconfig
 
 - name: Set root kubeconfig permissions

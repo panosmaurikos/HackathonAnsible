@@ -1,0 +1,3 @@
+---
+monitoring_namespace: "monitoring"
+cluster_name: "{{ ansible_hostname }}"

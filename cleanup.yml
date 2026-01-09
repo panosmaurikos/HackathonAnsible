@@ -18,6 +18,8 @@
           - "  This will remove:"
           - "    - Kubernetes (k3s/microk8s)"
           - "    - Calico CNI"
+          - "    - Monitoring Stack (Prometheus + Grafana)"
+          - "    - MLOps Stack (KServe, Knative, Cert-Manager, Istio)"
           - "    - Kubeconfig files"
           - "    - kubectl aliases"
           - "    - Kernel module configurations"
@@ -239,19 +241,20 @@
     # ===========================================
     # Clean Kubeconfig files (all users)
     # ===========================================
-    - name: Find all .kube directories in /home
-      ansible.builtin.find:
-        paths: /home
-        patterns: ".kube"
-        file_type: directory
-        recurse: no
-      register: home_kube_dirs
+    - name: Get list of all user home directories dynamically
+      ansible.builtin.shell: |
+        getent passwd | \
+        awk -F: '$3 >= 1000 && $3 < 65534 {print $6}' | \
+        sort -u
+      register: user_home_dirs
+      changed_when: false
 
-    - name: Remove user kubeconfig directories
+    - name: Remove .kube directories from all user homes
       ansible.builtin.file:
-        path: "{{ item.path }}"
+        path: "{{ item }}/.kube"
         state: absent
-      loop: "{{ home_kube_dirs.files }}"
+      loop: "{{ user_home_dirs.stdout_lines }}"
+      failed_when: false
 
     - name: Remove root kubeconfig directory
       ansible.builtin.file:
@@ -261,28 +264,20 @@
     # ===========================================
     # Remove kubectl aliases from bashrc (all users)
     # ===========================================
-    - name: Find all .bashrc files in /home
-      ansible.builtin.find:
-        paths: /home
-        patterns: ".bashrc"
-        file_type: file
-        recurse: no
-      register: home_bashrc_files
-
-    - name: Remove kubectl aliases from user bashrc files
+    - name: Remove kubectl aliases from all user bashrc files
       ansible.builtin.blockinfile:
-        path: "{{ item.path }}"
+        path: "{{ item }}/.bashrc"
         marker: "# {mark} ANSIBLE MANAGED - KUBECTL ALIASES"
         state: absent
-      loop: "{{ home_bashrc_files.files }}"
+      loop: "{{ user_home_dirs.stdout_lines }}"
       failed_when: false
 
-    - name: Remove KUBECONFIG export from user bashrc files
+    - name: Remove KUBECONFIG export from all user bashrc files
       ansible.builtin.lineinfile:
-        path: "{{ item.path }}"
+        path: "{{ item }}/.bashrc"
         regexp: '^export KUBECONFIG=.*\.kube/config'
         state: absent
-      loop: "{{ home_bashrc_files.files }}"
+      loop: "{{ user_home_dirs.stdout_lines }}"
       failed_when: false
 
     - name: Remove kubectl aliases from root bashrc
@@ -357,6 +352,59 @@
         - /tmp/calico-custom-resources.yaml
         - /tmp/calico-crd.yaml
       failed_when: false
+
+    # ===========================================
+    # Clean Monitoring Stack (Prometheus + Grafana)
+    # ===========================================
+
+    # Detection
+    - name: Check if monitoring namespace exists
+      ansible.builtin.command: kubectl get namespace monitoring
+      register: monitoring_installed
+      changed_when: false
+      failed_when: false
+
+    # Remove Monitoring Stack
+    - name: Remove Monitoring Stack
+      when: monitoring_installed.rc == 0
+      block:
+        - name: Delete monitoring namespace (cascading delete)
+          ansible.builtin.command: kubectl delete namespace monitoring --timeout=120s
+          register: monitoring_namespace_delete
+          changed_when: "'deleted' in monitoring_namespace_delete.stdout"
+          failed_when: false
+
+        - name: Wait for monitoring namespace to be fully deleted
+          ansible.builtin.command: kubectl get namespace monitoring
+          register: monitoring_ns_check
+          retries: 30
+          delay: 5
+          until: monitoring_ns_check.rc != 0
+          changed_when: false
+          failed_when: false
+
+        - name: Remove Prometheus Operator CRDs
+          ansible.builtin.shell: |
+            kubectl delete crd \
+              prometheuses.monitoring.coreos.com \
+              prometheusrules.monitoring.coreos.com \
+              servicemonitors.monitoring.coreos.com \
+              podmonitors.monitoring.coreos.com \
+              probes.monitoring.coreos.com \
+              alertmanagers.monitoring.coreos.com \
+              alertmanagerconfigs.monitoring.coreos.com \
+              thanosrulers.monitoring.coreos.com \
+              prometheusagents.monitoring.coreos.com \
+              scrapeconfigs.monitoring.coreos.com \
+              --ignore-not-found=true \
+              --timeout=60s
+          register: prometheus_crds_delete
+          changed_when: "'deleted' in prometheus_crds_delete.stdout"
+          failed_when: false
+
+        - name: Display monitoring cleanup status
+          ansible.builtin.debug:
+            msg: "Monitoring stack (Prometheus + Grafana) removed successfully"
 
     # ===========================================
     # Clean MLOps Stack (Reverse Order: KServe → Cert-Manager → Knative → Istio)

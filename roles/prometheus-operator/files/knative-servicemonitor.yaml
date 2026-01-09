@@ -1,0 +1,35 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: knative-serving-controller
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: knative-metrics
+spec:
+  selector:
+    matchLabels:
+      app: controller
+  namespaceSelector:
+    matchNames:
+      - knative-serving
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: knative-serving-activator
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: knative-metrics
+spec:
+  selector:
+    matchLabels:
+      app: activator
+  namespaceSelector:
+    matchNames:
+      - knative-serving
+  endpoints:
+    - port: metrics
+      interval: 30s
