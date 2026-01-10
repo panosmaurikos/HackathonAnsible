@@ -1,17 +1,103 @@
 ---
 # Common prerequisites for both k3s and microk8s
 
-- name: Update apt cache
+# ===========================================
+# OS Detection and Display
+# ===========================================
+
+- name: Display detected operating system
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Detected OS Information:"
+      - "  OS Family: {{ ansible_os_family }}"
+      - "  Distribution: {{ ansible_distribution }}"
+      - "  Version: {{ ansible_distribution_version }}"
+      - "  Architecture: {{ ansible_architecture }}"
+      - "=========================================="
+  run_once: true
+
+- name: Check if OS is supported
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family in ['Debian', 'RedHat', 'Suse', 'Archlinux', 'Alpine']
+    fail_msg: |
+      Unsupported OS family: {{ ansible_os_family }}
+      Supported: Debian/Ubuntu, RHEL/CentOS/Fedora, SUSE, Arch Linux, Alpine
+    success_msg: "OS family {{ ansible_os_family }} is supported"
+
+# ===========================================
+# Package Installation - Multi-Distribution Support
+# ===========================================
+
+- name: Update package cache (Debian/Ubuntu)
   ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3600
   when: ansible_os_family == "Debian"
 
-- name: Install required packages
+- name: Update package cache (RHEL/CentOS/Fedora)
+  ansible.builtin.yum:
+    update_cache: true
+  when: ansible_os_family == "RedHat"
+
+- name: Update package cache (Arch Linux)
+  ansible.builtin.command: pacman -Sy
+  when: ansible_os_family == "Archlinux"
+  changed_when: true
+  failed_when: false
+
+- name: Update package cache (SUSE)
+  ansible.builtin.command: zypper refresh
+  when: ansible_os_family == "Suse"
+  changed_when: true
+  failed_when: false
+
+- name: Update package cache (Alpine)
+  ansible.builtin.command: apk update
+  when: ansible_os_family == "Alpine"
+  changed_when: true
+  failed_when: false
+
+# ===========================================
+# Install packages using distribution-agnostic methods
+# ===========================================
+
+- name: Install required packages (Debian/Ubuntu)
   ansible.builtin.apt:
-    name: "{{ common_packages }}"
+    name: "{{ common_packages_debian }}"
     state: present
   when: ansible_os_family == "Debian"
+
+- name: Install required packages (RHEL/CentOS/Fedora)
+  ansible.builtin.yum:
+    name: "{{ common_packages_redhat }}"
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install required packages (SUSE)
+  ansible.builtin.command: zypper install -y {{ item }}
+  loop: "{{ common_packages_suse }}"
+  when: ansible_os_family == "Suse"
+  register: zypper_result
+  changed_when: "'Installing' in zypper_result.stdout or 'Upgrading' in zypper_result.stdout"
+  failed_when: false
+
+- name: Install required packages (Arch Linux)
+  ansible.builtin.command: pacman -S --noconfirm --needed {{ item }}
+  loop: "{{ common_packages_archlinux }}"
+  when: ansible_os_family == "Archlinux"
+  register: pacman_result
+  changed_when: "'installing' in pacman_result.stdout or 'upgrading' in pacman_result.stdout"
+  failed_when: false
+
+- name: Install required packages (Alpine)
+  ansible.builtin.command: apk add {{ item }}
+  loop: "{{ common_packages_alpine }}"
+  when: ansible_os_family == "Alpine"
+  register: apk_result
+  changed_when: "'Installing' in apk_result.stdout"
+  failed_when: false
 
 - name: Disable swap
   ansible.builtin.command: swapoff -a

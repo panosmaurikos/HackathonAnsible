@@ -7,11 +7,59 @@
   changed_when: false
   failed_when: false
 
-- name: Install snapd
+# ===========================================
+# Install snapd - Multi-Distribution Support
+# ===========================================
+
+- name: Install snapd (Debian/Ubuntu)
   ansible.builtin.apt:
     name: snapd
     state: present
+  when:
+    - snap_check.rc != 0
+    - ansible_os_family == "Debian"
+
+- name: Install snapd (RHEL/CentOS/Fedora)
+  ansible.builtin.yum:
+    name: snapd
+    state: present
+  when:
+    - snap_check.rc != 0
+    - ansible_os_family == "RedHat"
+
+- name: Install snapd (Arch Linux)
+  ansible.builtin.command: pacman -S --noconfirm --needed snapd
+  when:
+    - snap_check.rc != 0
+    - ansible_os_family == "Archlinux"
+  register: pacman_snapd
+  changed_when: "'installing' in pacman_snapd.stdout or 'upgrading' in pacman_snapd.stdout"
+  failed_when: false
+
+- name: Install snapd (SUSE)
+  ansible.builtin.command: zypper install -y snapd
+  when:
+    - snap_check.rc != 0
+    - ansible_os_family == "Suse"
+  register: zypper_snapd
+  changed_when: "'Installing' in zypper_snapd.stdout or 'Upgrading' in zypper_snapd.stdout"
+  failed_when: false
+
+- name: Enable and start snapd socket (systemd-based systems)
+  ansible.builtin.systemd:
+    name: snapd.socket
+    enabled: true
+    state: started
   when: snap_check.rc != 0
+  ignore_errors: true
+
+- name: Create snap symlink (if needed)
+  ansible.builtin.file:
+    src: /var/lib/snapd/snap
+    dest: /snap
+    state: link
+  when: snap_check.rc != 0
+  ignore_errors: true
 
 - name: Check if microk8s is installed
   ansible.builtin.command: snap list microk8s

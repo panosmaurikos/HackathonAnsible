@@ -73,21 +73,6 @@ kubeconfig_dir: "/home/{{ ansible_user }}/.kube"
 # Also setup for root user
 setup_root_kubeconfig: true
 
-# ===========================================
-# System Requirements
-# ===========================================
-# Required packages
-common_packages:
-  - curl
-  - wget
-  - apt-transport-https
-  - ca-certificates
-  - gnupg
-  - lsb-release
-  - jq
-  - net-tools
-  - htop
-
 # Kernel modules required
 required_kernel_modules:
   - br_netfilter
@@ -163,3 +148,4 @@ kserve_namespace: "kserve"
 kserve_manifest_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve.yaml"
 kserve_cluster_resources_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve-cluster-resources.yaml"
 kserve_ready_timeout: 300
+install_monitoring: false

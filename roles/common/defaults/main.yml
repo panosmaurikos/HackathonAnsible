@@ -1,0 +1,74 @@
+---
+# Common role defaults - OS-agnostic configuration
+
+# ===========================================
+# Package Names by Distribution Family
+# ===========================================
+
+# Debian/Ubuntu packages
+common_packages_debian:
+  - curl
+  - wget
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - jq
+  - net-tools
+  - htop
+  - software-properties-common
+
+# RHEL/CentOS/Fedora packages
+common_packages_redhat:
+  - curl
+  - wget
+  - ca-certificates
+  - gnupg2
+  - redhat-lsb-core
+  - jq
+  - net-tools
+  - htop
+
+# Arch Linux packages
+common_packages_archlinux:
+  - curl
+  - wget
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - jq
+  - net-tools
+  - htop
+
+# SUSE/openSUSE packages
+common_packages_suse:
+  - curl
+  - wget
+  - ca-certificates
+  - gpg2
+  - lsb-release
+  - jq
+  - net-tools
+  - htop
+
+# Alpine Linux packages
+common_packages_alpine:
+  - curl
+  - wget
+  - ca-certificates
+  - gnupg
+  - jq
+  - net-tools
+  - htop
+
+# ===========================================
+# Python Interpreter Auto-detection
+# ===========================================
+# This will be auto-detected in tasks
+python_interpreter_paths:
+  - /usr/bin/python3
+  - /usr/bin/python3.11
+  - /usr/bin/python3.10
+  - /usr/bin/python3.9
+  - /usr/bin/python
+  - /usr/local/bin/python3
