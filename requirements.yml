@@ -5,3 +5,4 @@
 collections:
   - community.general
   - ansible.posix
+  - kubernetes.core  # Required for monitoring stack (k8s, k8s_info modules)

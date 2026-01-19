@@ -148,4 +148,4 @@ kserve_namespace: "kserve"
 kserve_manifest_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve.yaml"
 kserve_cluster_resources_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve-cluster-resources.yaml"
 kserve_ready_timeout: 300
-install_monitoring: false
+install_monitoring: true

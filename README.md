@@ -40,3 +40,15 @@ ansible-playbook site.yml -e "k8s_distribution=microk8s"
 │       Kubernetes (k3s)              │  ← Base
 └─────────────────────────────────────┘
 ```
+
+```
+ansible [core 2.12.0]
+  config file = /home/pmavrikos/HackathonAnsible/ansible.cfg
+  configured module search path = ['/home/pmavrikos/.ansible/plugins/modules', '/usr/share/ansible/plugins/modules']
+  ansible python module location = /usr/lib/python3/dist-packages/ansible
+  ansible collection location = /home/pmavrikos/.ansible/collections:/usr/share/ansible/collections
+  executable location = /usr/bin/ansible
+  python version = 3.10.12 (main, Jan  8 2026, 06:52:19) [GCC 11.4.0]
+  jinja version = 3.0.3
+  libyaml = True
+```
