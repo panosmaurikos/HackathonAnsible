@@ -9,4 +9,4 @@ knative_serving_core_url: "https://github.com/knative/serving/releases/download/
 knative_net_istio_url: "https://github.com/knative/net-istio/releases/download/{{ knative_version }}/net-istio.yaml"
 
 # Timeout settings
-knative_ready_timeout: 300
+knative_ready_timeout: 120

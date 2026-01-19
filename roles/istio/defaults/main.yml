@@ -10,4 +10,4 @@ istio_ingressgateway_replicas: 1
 istio_disable_hpa: true
 
 # Timeout settings
-istio_ready_timeout: 300
+istio_ready_timeout: 120

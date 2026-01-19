@@ -5,4 +5,4 @@ cert_manager_namespace: "cert-manager"
 cert_manager_manifest_url: "https://github.com/cert-manager/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.yaml"
 
 # Timeout settings
-cert_manager_ready_timeout: 300
+cert_manager_ready_timeout: 120

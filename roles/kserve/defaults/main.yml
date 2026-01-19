@@ -6,4 +6,4 @@ kserve_manifest_url: "https://github.com/kserve/kserve/releases/download/{{ kser
 kserve_cluster_resources_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve-cluster-resources.yaml"
 
 # Timeout settings
-kserve_ready_timeout: 300
+kserve_ready_timeout: 120
