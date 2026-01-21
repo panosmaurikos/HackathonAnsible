@@ -1,0 +1,7 @@
+---
+# Kite - Kubernetes Dashboard
+install_kite: true
+kite_manifest_url: "https://raw.githubusercontent.com/zxh326/kite/refs/heads/main/deploy/install.yaml"
+kite_namespace: "kube-system"
+kite_nodeport: 30808
+kite_ready_timeout: 120

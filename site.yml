@@ -105,6 +105,13 @@
       when: install_monitoring | default(true)
       tags: [monitoring, observability, grafana]
 
+    # ===========================================
+    # Kite - Kubernetes Web Dashboard
+    # ===========================================
+    - role: kite
+      when: install_kite | default(true)
+      tags: [kite, dashboard, ui]
+
   post_tasks:
     - name: Verify cluster is ready
       ansible.builtin.command: kubectl get nodes
@@ -135,5 +142,6 @@
           {{ '✓' if install_cert_manager | default(true) else '○' }} Cert-Manager (TLS)
           {{ '✓' if install_kserve | default(true) else '○' }} KServe (ML Model Serving)
           {{ '✓' if install_monitoring | default(true) else '○' }} Monitoring (Prometheus + Grafana)
+          {{ '✓' if install_kite | default(true) else '○' }} Kite Dashboard (http://<node-ip>:30808)
           ============================================
       when: install_istio | default(true) or install_knative | default(true)

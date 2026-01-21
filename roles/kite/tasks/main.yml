@@ -1,0 +1,36 @@
+---
+# Kite - Kubernetes Web Dashboard
+# https://github.com/zxh326/kite
+
+- name: Install Kite dashboard
+  ansible.builtin.command: kubectl apply -f {{ kite_manifest_url }}
+  register: kite_install
+  changed_when: "'created' in kite_install.stdout or 'configured' in kite_install.stdout"
+
+- name: Wait for Kite deployment to be ready
+  ansible.builtin.command: >
+    kubectl wait --for=condition=available deployment/kite
+    -n {{ kite_namespace }} --timeout={{ kite_ready_timeout }}s
+  changed_when: false
+  retries: 3
+  delay: 10
+
+- name: Patch Kite service to NodePort
+  ansible.builtin.command: >
+    kubectl patch svc kite -n {{ kite_namespace }}
+    -p '{"spec":{"type":"NodePort","ports":[{"port":8080,"targetPort":8080,"nodePort":{{ kite_nodeport }}}]}}'
+  register: patch_result
+  changed_when: "'patched' in patch_result.stdout"
+  failed_when: false
+
+- name: Display Kite access info
+  ansible.builtin.debug:
+    msg: |
+      ============================================
+      Kite Dashboard Installed!
+      ============================================
+      Access at: http://<node-ip>:{{ kite_nodeport }}
+
+      Or use port-forward:
+        kubectl port-forward -n {{ kite_namespace }} svc/kite 8080:8080
+      ============================================
