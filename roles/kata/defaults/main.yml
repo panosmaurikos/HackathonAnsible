@@ -1,0 +1,22 @@
+---
+# Kata Containers Helm deployment defaults
+
+# Set to true to install Kata Containers
+install_kata: false
+
+# Chart version - empty means fetch latest from GitHub API
+kata_version: ""
+
+# Helm release name and namespace
+kata_release_name: "kata-deploy"
+kata_namespace: "kube-system"
+
+# Kubernetes distribution - set to k3s for k3s clusters
+kata_k8s_distribution: "k3s"
+
+# Default shim to use (qemu supports amd64, arm64, s390x, ppc64le)
+kata_default_shim: "qemu"
+
+# Wait for DaemonSet rollout to complete before returning
+kata_wait: true
+kata_wait_timeout: "10m"

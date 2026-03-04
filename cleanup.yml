@@ -524,6 +524,49 @@
           failed_when: false
 
     # ===========================================
+    # Remove Kata Containers (Helm release)
+    # ===========================================
+
+    - name: Check if helm is installed
+      ansible.builtin.command: which helm
+      register: helm_check_cleanup
+      changed_when: false
+      failed_when: false
+
+    - name: Check if kata-deploy Helm release exists
+      ansible.builtin.command: helm status kata-deploy -n kube-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: kata_helm_check
+      changed_when: false
+      failed_when: false
+      when: helm_check_cleanup.rc == 0
+
+    - name: Uninstall kata-deploy Helm release
+      ansible.builtin.command: helm uninstall kata-deploy -n kube-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      when:
+        - helm_check_cleanup.rc == 0
+        - kata_helm_check.rc == 0
+      register: kata_helm_uninstall
+      changed_when: "'uninstalled' in kata_helm_uninstall.stdout"
+      failed_when: false
+
+    - name: Wait for kata-deploy post-delete hook to finish
+      ansible.builtin.command: >
+        kubectl wait --for=delete daemonset/kata-deploy
+        -n kube-system
+        --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      when:
+        - helm_check_cleanup.rc == 0
+        - kata_helm_check.rc == 0
+      failed_when: false
+      changed_when: false
+
+    # ===========================================
     # Clean fact cache
     # ===========================================
     - name: Remove ansible fact cache
@@ -563,26 +606,27 @@
           - ""
           - "================================================================"
           - ""
-          - "           ✓ CLEANUP COMPLETED"
+          - "           CLEANUP COMPLETED"
           - ""
           - "================================================================"
           - ""
           - "  Removed:"
-          - "    {{ '✓' if k3s_detected else '○' }} k3s"
-          - "    {{ '✓' if microk8s_detected else '○' }} microk8s"
-          - "    {{ '✓' if kserve_installed.rc == 0 else '○' }} KServe"
-          - "    {{ '✓' if knative_installed.rc == 0 else '○' }} Knative Serving"
-          - "    {{ '✓' if cert_manager_installed.rc == 0 else '○' }} Cert-Manager"
-          - "    {{ '✓' if istio_installed.rc == 0 else '○' }} Istio"
-          - "    ✓ Kubeconfig files"
-          - "    ✓ kubectl aliases"
-          - "    ✓ Kernel module configs"
-          - "    ✓ Sysctl configurations"
-          - "    ✓ CNI directories"
+          - "    [{{ 'removed' if k3s_detected else 'not found' }}] k3s"
+          - "    [{{ 'removed' if microk8s_detected else 'not found' }}] microk8s"
+          - "    [{{ 'removed' if (kata_helm_check is defined and kata_helm_check.rc == 0) else 'not found' }}] Kata Containers"
+          - "    [{{ 'removed' if kserve_installed.rc == 0 else 'not found' }}] KServe"
+          - "    [{{ 'removed' if knative_installed.rc == 0 else 'not found' }}] Knative Serving"
+          - "    [{{ 'removed' if cert_manager_installed.rc == 0 else 'not found' }}] Cert-Manager"
+          - "    [{{ 'removed' if istio_installed.rc == 0 else 'not found' }}] Istio"
+          - "    [removed] Kubeconfig files"
+          - "    [removed] kubectl aliases"
+          - "    [removed] Kernel module configs"
+          - "    [removed] Sysctl configurations"
+          - "    [removed] CNI directories"
           - ""
           - "  Verification:"
-          - "    k3s found: {{ 'NO ✓' if k3s_verify.rc != 0 else 'YES ✗' }}"
-          - "    microk8s found: {{ 'NO ✓' if microk8s_verify.rc != 0 else 'YES ✗' }}"
+          - "    k3s found: {{ 'NO (clean)' if k3s_verify.rc != 0 else 'YES (check manually)' }}"
+          - "    microk8s found: {{ 'NO (clean)' if microk8s_verify.rc != 0 else 'YES (check manually)' }}"
           - ""
           - "  System is now clean!"
           - ""

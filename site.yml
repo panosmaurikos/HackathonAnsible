@@ -57,6 +57,7 @@
           Cert-Manager: {{ install_cert_manager | default(true) }}
           KServe: {{ install_kserve | default(true) }}
           Monitoring: {{ install_monitoring | default(true) }}
+          Kata Containers: {{ install_kata | default(false) }}
           ============================================
 
   roles:
@@ -74,6 +75,15 @@
     - role: cni
       when: k8s_distribution == 'k3s'
       tags: [cni, networking]
+
+    # ===========================================
+    # Kata Containers (VM-level isolation via Helm)
+    # ===========================================
+    - role: kata
+      when:
+        - k8s_distribution == 'k3s'
+        - install_kata | default(false) | bool
+      tags: [kata, security, isolation]
 
     # ===========================================
     # MLOps Stack
@@ -137,11 +147,12 @@
           MLOps Stack Status
           ============================================
           Components Installed:
-          {{ '✓' if install_istio | default(true) else '○' }} Istio (Service Mesh)
-          {{ '✓' if install_knative | default(true) else '○' }} Knative Serving (Serverless)
-          {{ '✓' if install_cert_manager | default(true) else '○' }} Cert-Manager (TLS)
-          {{ '✓' if install_kserve | default(true) else '○' }} KServe (ML Model Serving)
-          {{ '✓' if install_monitoring | default(true) else '○' }} Monitoring (Prometheus + Grafana)
-          {{ '✓' if install_kite | default(true) else '○' }} Kite Dashboard (http://<node-ip>:30808)
+          [{{ 'ON' if install_kata | default(false) else 'OFF' }}] Kata Containers (VM isolation)
+          [{{ 'ON' if install_istio | default(true) else 'OFF' }}] Istio (Service Mesh)
+          [{{ 'ON' if install_knative | default(true) else 'OFF' }}] Knative Serving (Serverless)
+          [{{ 'ON' if install_cert_manager | default(true) else 'OFF' }}] Cert-Manager (TLS)
+          [{{ 'ON' if install_kserve | default(true) else 'OFF' }}] KServe (ML Model Serving)
+          [{{ 'ON' if install_monitoring | default(true) else 'OFF' }}] Monitoring (Prometheus + Grafana)
+          [{{ 'ON' if install_kite | default(true) else 'OFF' }}] Kite Dashboard (http://<node-ip>:30808)
           ============================================
       when: install_istio | default(true) or install_knative | default(true)

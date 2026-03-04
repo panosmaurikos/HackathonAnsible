@@ -1,0 +1,97 @@
+---
+# ===========================================
+# Kata Containers - Helm Deployment
+# ===========================================
+
+# --- Step 1: Ensure Helm is available ---
+
+- name: Check if helm is installed
+  ansible.builtin.command: which helm
+  register: helm_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Helm (architecture-aware via official install script)
+  ansible.builtin.shell: |
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  when: helm_check.rc != 0
+
+# --- Step 2: Resolve Kata Containers chart version ---
+
+- name: Fetch latest kata-containers release version from GitHub API
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/kata-containers/kata-containers/releases/latest
+    return_content: true
+    headers:
+      Accept: "application/vnd.github+json"
+  register: kata_latest_release
+  when: kata_version == ""
+
+- name: Set resolved kata version fact
+  ansible.builtin.set_fact:
+    kata_version_resolved: "{{ kata_latest_release.json.tag_name if kata_version == '' else kata_version }}"
+
+- name: Display kata version to be installed
+  ansible.builtin.debug:
+    msg: "Installing Kata Containers chart version: {{ kata_version_resolved }}"
+
+# --- Step 3: Deploy kata-deploy via Helm ---
+# Only qemu shim is enabled — it supports amd64, arm64, s390x, ppc64le.
+# shims.disableAll=true prevents x86-only TEE shims (qemu-snp, qemu-tdx)
+# from being deployed on aarch64 nodes.
+
+- name: Install kata-deploy Helm chart
+  ansible.builtin.command: >
+    helm upgrade --install {{ kata_release_name }}
+    oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy
+    --version {{ kata_version_resolved }}
+    --namespace {{ kata_namespace }}
+    --create-namespace
+    --set k8sDistribution={{ kata_k8s_distribution }}
+    --set shims.disableAll=true
+    --set shims.qemu.enabled=true
+    --set defaultShim.amd64={{ kata_default_shim }}
+    --set defaultShim.arm64={{ kata_default_shim }}
+    {{ '--wait --timeout ' + kata_wait_timeout + ' --atomic' if kata_wait else '' }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: kata_helm_install
+  changed_when: "'STATUS: deployed' in kata_helm_install.stdout"
+
+- name: Display Helm install output
+  ansible.builtin.debug:
+    msg: "{{ kata_helm_install.stdout_lines }}"
+
+# --- Step 4: Verify DaemonSet rollout (when not using --wait) ---
+
+- name: Wait for kata-deploy DaemonSet to be ready
+  ansible.builtin.command: >
+    kubectl rollout status daemonset/kata-deploy
+    -n {{ kata_namespace }}
+    --timeout=300s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+  when: not kata_wait | bool
+
+# --- Step 5: Show installed RuntimeClasses ---
+
+- name: List kata RuntimeClasses
+  ansible.builtin.command: kubectl get runtimeclasses
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: runtimeclasses_output
+  changed_when: false
+  failed_when: false
+
+- name: Display RuntimeClasses
+  ansible.builtin.debug:
+    msg: |
+      ============================================
+      Kata Containers RuntimeClasses
+      ============================================
+      {{ runtimeclasses_output.stdout }}
+      ============================================
+      Use 'runtimeClassName: kata-qemu' in your pod spec
+      to run workloads inside a Kata VM.
+      ============================================

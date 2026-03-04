@@ -149,3 +149,12 @@ kserve_manifest_url: "https://github.com/kserve/kserve/releases/download/{{ kser
 kserve_cluster_resources_url: "https://github.com/kserve/kserve/releases/download/{{ kserve_version }}/kserve-cluster-resources.yaml"
 kserve_ready_timeout: 300
 install_monitoring: true
+
+# ===========================================
+# Kata Containers Configuration
+# ===========================================
+install_kata: true
+kata_version: ""           # Empty = fetch latest from GitHub API
+kata_namespace: "kube-system"
+kata_default_shim: "qemu"  # qemu supports amd64, arm64, s390x, ppc64le
+kata_k8s_distribution: "k3s"
